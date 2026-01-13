@@ -1,6 +1,7 @@
 # RAW to JPEG Batch Converter
 
 A Python wrapper around darktable-cli for batch conversion of RAW camera files to JPEG with progress tracking and retry capability.
+** tested in windows 11, can be easily ported to linux by changing the path to datrktable-cli and handling other paths where-ever used.**
 
 ## Features
 
