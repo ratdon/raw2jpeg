@@ -53,6 +53,11 @@ Examples:
         action='store_true',
         help='Skip confirmation prompts',
     )
+    parser.add_argument(
+        '--sleep',
+        action='store_true',
+        help='Put the system to sleep after processing all folders',
+    )
     
     # Utility commands
     parser.add_argument(
@@ -219,9 +224,15 @@ def run_conversion(args: argparse.Namespace) -> int:
         print(f"\n⚠️  Some folders failed.")
         for job in results['failed_jobs']:
             print(f"   ✗ {job['input_folder']}")
-        return 1
-    
-    return 0
+            
+    if args.sleep:
+        import os
+        import time
+        print("\n💤 --sleep invoked! Putting system to sleep in 5 seconds...")
+        time.sleep(5)
+        os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+        
+    return 1 if results['failed'] > 0 else 0
 
 
 def main() -> int:

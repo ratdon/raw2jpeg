@@ -44,6 +44,9 @@ python raw2jpeg.py --inpath G:\Photos\RAW --resume
 # Skip output directory creation prompts if it doesn't exist
 python raw2jpeg.py --inpath G:\Photos\RAW --outpath D:\Photos\JPEG --yes
 
+# Put the system to sleep after processing all folders finishes
+python raw2jpeg.py --inpath G:\Photos\RAW --sleep
+
 ### Manual darktable-cli Equivalent
 If you do not want to use this tool, the exact `darktable-cli` processing command launched natively per-thread resembles this:
 ```cmd
@@ -77,8 +80,12 @@ default_height = 2048
 jpeg_quality = 90
 
 [performance]
-target_cpu_percent = 70
-target_memory_percent = 85
+max_workers = 3
+gpu_instances = 2
+cpu_threads_gpu_instance = 2
+cpu_threads_cpu_instance = 4
+opencl_memory_headroom_mb = 1500
+gpu_memory_mb = 8192
 max_retry = 5
 
 [updates]
@@ -86,7 +93,7 @@ check_updates = true
 cache_days = 7
 ```
 
-**Note**: The number of parallel workers is fixed at 2 for stability, as darktable-cli can become unresponsive with more concurrent processes.
+**Note**: The Sandbox Executor manages system limits dynamically. To prevent absolute system locks, the `[performance]` limits guarantee that at least **4 CPU threads remain free** at all times and blocks your `opencl_memory_headroom_mb` from expanding beyond half of your specified `gpu_memory_mb` limit.
 
 ## Filename Pattern Handling
 
