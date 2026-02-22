@@ -47,7 +47,20 @@ def get_affinity_mask(start_thread: int, end_thread: int) -> str:
 
 def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
     """Generate worker profiles with CPU affinity."""
+    config = get_config()
     total_threads = os.cpu_count() or 4
+    
+    # 4 thread buffer isolation
+    max_allocatable = max(1, total_threads - 4)
+    assigned_threads = 0
+    
+    # Max headroom limit calculation
+    headroom = config.opencl_memory_headroom_mb
+    max_headroom = max(1, config.gpu_memory_mb // 2)
+    if headroom > max_headroom:
+        print(f"⚠️  Memory headroom {headroom}MB exceeds half of GPU memory. Capping to {max_headroom}MB.")
+        headroom = max_headroom
+        
     profiles = []
     
     current_end = total_threads - 1
@@ -57,9 +70,13 @@ def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
     
     worker_id = 1
     
-    # Assign GPU instances from reverse, 2 threads each
+    # Assign GPU instances from reverse
     for _ in range(gpu_count):
-        gpu_threads = 2
+        gpu_threads = config.cpu_threads_gpu_instance
+        if assigned_threads + gpu_threads > max_allocatable:
+            print(f"⚠️  Not enough free threads for GPU worker {worker_id}. Skipping.")
+            continue
+            
         start = max(0, current_end - gpu_threads + 1)
         if start > current_end:
             start, current_end = 0, 0
@@ -69,14 +86,20 @@ def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
             'start_thread': start,
             'end_thread': current_end,
             'hex_mask': get_affinity_mask(start, current_end),
-            'use_gpu': True
+            'use_gpu': True,
+            'headroom': headroom
         })
         current_end = start - 1
         worker_id += 1
+        assigned_threads += gpu_threads
         
-    # Assign CPU instances from reverse, 4 threads each
+    # Assign CPU instances from reverse
     for _ in range(cpu_count):
-        cpu_threads = 4
+        cpu_threads = config.cpu_threads_cpu_instance
+        if assigned_threads + cpu_threads > max_allocatable:
+            print(f"⚠️  Not enough free threads for CPU worker {worker_id}. Skipping.")
+            continue
+            
         start = max(0, current_end - cpu_threads + 1)
         if start > current_end:
             start, current_end = 0, 0
@@ -86,10 +109,12 @@ def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
             'start_thread': start,
             'end_thread': current_end,
             'hex_mask': get_affinity_mask(start, current_end),
-            'use_gpu': False
+            'use_gpu': False,
+            'headroom': headroom
         })
         current_end = start - 1
         worker_id += 1
+        assigned_threads += cpu_threads
         
     return profiles
 
@@ -146,15 +171,24 @@ class SandboxExecutor:
             
         exe_path = str(self.darktable_cli)
         
+        headroom = profile.get('headroom', 1500)
+        
         cmd_str = (
             f'start "" /affinity {hex_mask} /b /wait "{exe_path}" '
-            f'"{input_folder}" "{output_template}" '
-            f'--width {self.width} --height {self.height} '
-            f'--apply-custom-presets false --core '
-            f'--library :memory: --configdir "{config_dir}" --cachedir "{cache_dir}" '
+            f'"{input_folder}" '
+            f'"{output_template}" '
+            f'--width {self.width} '
+            f'--height {self.height} '
+            f'--apply-custom-presets false '
+            f'--core '
+            f'--library :memory: '
+            f'--configdir "{config_dir}" '
+            f'--cachedir "{cache_dir}" '
             f'--conf plugins/imageio/format/jpeg/quality={self.jpeg_quality} '
-            f'--conf opencl_memory_headroom=1500 '
+            f'--conf opencl_memory_headroom={headroom} '
             f'--conf opencl_async_pixelpipe=TRUE '
+            # default: cpu and gpu both
+            # very_fast_gpu: gpu only for everything
             f'--conf opencl_scheduling_profile=very_fast_gpu '
             f'--conf opencl={"TRUE" if use_gpu else "FALSE"}'
         )

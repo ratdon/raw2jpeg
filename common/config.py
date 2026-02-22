@@ -20,6 +20,10 @@ DEFAULTS = {
     'performance': {
         'max_workers': '3',
         'gpu_instances': '2',
+        'cpu_threads_gpu_instance': '2',
+        'cpu_threads_cpu_instance': '4',
+        'opencl_memory_headroom_mb': '1500',
+        'gpu_memory_mb': '8192',
         'max_retry': '5',
     },
     'updates': {
@@ -88,6 +92,22 @@ class Config:
     @property
     def gpu_instances(self) -> int:
         return self._config.getint('performance', 'gpu_instances')
+        
+    @property
+    def cpu_threads_gpu_instance(self) -> int:
+        return self._config.getint('performance', 'cpu_threads_gpu_instance')
+        
+    @property
+    def cpu_threads_cpu_instance(self) -> int:
+        return self._config.getint('performance', 'cpu_threads_cpu_instance')
+        
+    @property
+    def opencl_memory_headroom_mb(self) -> int:
+        return self._config.getint('performance', 'opencl_memory_headroom_mb')
+        
+    @property
+    def gpu_memory_mb(self) -> int:
+        return self._config.getint('performance', 'gpu_memory_mb')
     
     @property
     def max_retry(self) -> int:
