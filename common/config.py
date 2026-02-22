@@ -18,8 +18,8 @@ DEFAULTS = {
         'jpeg_quality': '90',
     },
     'performance': {
-        'target_cpu_percent': '70',
-        'target_memory_percent': '85',
+        'max_workers': '3',
+        'gpu_instances': '2',
         'max_retry': '5',
     },
     'updates': {
@@ -82,12 +82,12 @@ class Config:
         return self._config.getint('output', 'jpeg_quality')
     
     @property
-    def target_cpu_percent(self) -> float:
-        return self._config.getfloat('performance', 'target_cpu_percent')
+    def max_workers(self) -> int:
+        return self._config.getint('performance', 'max_workers')
     
     @property
-    def target_memory_percent(self) -> float:
-        return self._config.getfloat('performance', 'target_memory_percent')
+    def gpu_instances(self) -> int:
+        return self._config.getint('performance', 'gpu_instances')
     
     @property
     def max_retry(self) -> int:

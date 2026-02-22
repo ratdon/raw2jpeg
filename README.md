@@ -41,6 +41,14 @@ python raw2jpeg.py --inpath G:\Photos\RAW --quiet
 
 # Auto-retry failed jobs
 python raw2jpeg.py --inpath G:\Photos\RAW --resume
+
+# Skip output directory creation prompts if it doesn't exist
+python raw2jpeg.py --inpath G:\Photos\RAW --outpath D:\Photos\JPEG --yes
+
+### Manual darktable-cli Equivalent
+If you do not want to use this tool, the exact `darktable-cli` processing command launched natively per-thread resembles this:
+```cmd
+start "DT" /affinity F00 /b /wait "C:\Program Files\darktable\bin\darktable-cli.exe" "G:\Photos\RAW" "D:\Photos\JPEG\$(FILE.NAME).jpg" --width 2048 --height 2048 --apply-custom-presets false --library :memory: --configdir "C:\temp\dt_worker_1_config" --cachedir "C:\temp\dt_worker_1_cache" --core --conf plugins/imageio/format/jpeg/quality=90 --conf opencl_memory_headroom=1500 --conf opencl_async_pixelpipe=TRUE --conf opencl_scheduling_profile=very_fast_gpu --conf opencl=TRUE
 ```
 
 ### Utility Commands
@@ -99,8 +107,40 @@ For plain DSC files, the output filename includes the EXIF datetime:
 1. **Discovery**: Recursively finds leaf folders containing RAW files
 2. **Pattern Detection**: Checks sample file to determine filename format
 3. **Job Creation**: Creates darktable-cli commands with appropriate output templates
-4. **Parallel Execution**: Runs up to 2 concurrent conversions with resource monitoring
+4. **Sandboxed Parallel Execution**: Runs predefined concurrent worker threads strictly pinned to hardware constraints using Memory databases and Sandboxed directories.
 5. **Retry**: Failed folders are automatically retried up to `max_retry` times
+
+### Execution Flow
+
+```mermaid
+graph TD
+    A[User CLI Start] --> B{Outpath Exists?}
+    B -- No --> C[/Prompt user / Check --yes/]
+    C -- Yes/Approved --> D[Create Directory]
+    B -- Yes --> D
+    
+    D --> E[Discover Leaf Folders]
+    E --> F[Generate Job Queue]
+    
+    F --> G[Initialize SandboxExecutor]
+    G --> H[Generate Worker Affinity Profiles]
+    
+    H --> I[Execute ThreadPool Queue]
+    I --> J1[GPU Worker 1]
+    I --> J2[GPU Worker 2]
+    I --> J3[CPU Worker 3]
+    
+    J1 --> K[Start cmd isolated Sandbox]
+    J2 --> K
+    J3 --> K
+    
+    K --> L[Convert RAW to JPEG]
+    
+    L --> M{Result}
+    M -- Success --> N[Cleanup Temp Sandbox]
+    M -- Failure --> O[Schedule Retry]
+    O --> N
+```
 
 ## License
 
