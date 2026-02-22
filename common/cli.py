@@ -48,6 +48,11 @@ Examples:
         action='store_true',
         help='Track failed items and retry at the end',
     )
+    parser.add_argument(
+        '-y', '--yes',
+        action='store_true',
+        help='Skip confirmation prompts',
+    )
     
     # Utility commands
     parser.add_argument(
@@ -125,7 +130,7 @@ def handle_validate() -> int:
 def run_conversion(args: argparse.Namespace) -> int:
     """Run the main conversion workflow."""
     from .capability import validate_installation
-    from .executor import AdaptiveExecutor
+    from .executor import SandboxExecutor
     from .planner import create_conversion_jobs, discover_leaf_folders, get_default_outpath
     from .updater import UpdateMonitor, format_update_message
     
@@ -154,6 +159,17 @@ def run_conversion(args: argparse.Namespace) -> int:
     inpath = args.inpath.resolve()
     outpath = args.outpath.resolve() if args.outpath else get_default_outpath(inpath)
     
+    if args.outpath and not outpath.exists():
+        if not args.yes:
+            print(f"⚠️  Output directory does not exist: {outpath}")
+            response = input("Create it and proceed? [y/N]: ").strip().lower()
+            if response != 'y':
+                print("Aborted.")
+                return 1
+        outpath.mkdir(parents=True, exist_ok=True)
+    elif not outpath.exists():
+        outpath.mkdir(parents=True, exist_ok=True)
+    
     print(f"\n📁 Input:  {inpath}")
     print(f"📁 Output: {outpath}")
     print()
@@ -177,7 +193,7 @@ def run_conversion(args: argparse.Namespace) -> int:
     print("🚀 Starting conversion...")
     print()
     
-    executor = AdaptiveExecutor(quiet=args.quiet)
+    executor = SandboxExecutor(quiet=args.quiet)
     results = executor.execute_jobs(jobs)
     
     # Retry failed jobs if --resume is set
