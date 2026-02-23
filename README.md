@@ -51,7 +51,7 @@ python raw2jpeg.py --inpath G:\Photos\RAW --sleep
 ### Manual darktable-cli Equivalent
 If you do not want to use this tool, the exact `darktable-cli` processing command launched natively per-thread resembles this:
 ```cmd
-start "DT" /affinity F00 /b /wait "C:\Program Files\darktable\bin\darktable-cli.exe" "G:\Photos\RAW" "D:\Photos\JPEG\$(FILE.NAME).jpg" --width 2048 --height 2048 --apply-custom-presets false --library :memory: --configdir "C:\temp\dt_worker_1_config" --cachedir "C:\temp\dt_worker_1_cache" --core --conf plugins/imageio/format/jpeg/quality=90 --conf opencl_memory_headroom=1500 --conf opencl_async_pixelpipe=TRUE --conf opencl_scheduling_profile=very_fast_gpu --conf opencl=TRUE
+start "DT" /affinity F00 /b /wait "C:\Program Files\darktable\bin\darktable-cli.exe" "G:\Photos\RAW" "D:\Photos\JPEG\$(FILE.NAME).jpg" --width 2048 --height 2048 --core --configdir "C:\temp\dt_worker_1_config" --conf plugins/imageio/format/jpeg/quality=90 --conf opencl=TRUE
 ```
 
 ### Utility Commands
@@ -85,8 +85,7 @@ max_workers = 3
 gpu_instances = 2
 cpu_threads_gpu_instance = 2
 cpu_threads_cpu_instance = 4
-opencl_memory_headroom_mb = 1500
-gpu_memory_mb = 8192
+reserved_core_count = 4
 max_retry = 5
 
 [updates]
@@ -94,7 +93,7 @@ check_updates = true
 cache_days = 7
 ```
 
-**Note**: The Sandbox Executor manages system limits dynamically. To prevent absolute system locks, the `[performance]` limits guarantee that at least **4 CPU threads remain free** at all times and blocks your `opencl_memory_headroom_mb` from expanding beyond half of your specified `gpu_memory_mb` limit.
+**Note**: The Sandbox Executor manages system limits dynamically. To prevent absolute system locks, the `[performance]` limits guarantee that your specified `reserved_core_count` of CPU threads remains free at all times to handle OS background processes.
 
 ## Filename Pattern Handling
 

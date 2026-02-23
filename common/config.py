@@ -20,10 +20,9 @@ DEFAULTS = {
     'performance': {
         'max_workers': '3',
         'gpu_instances': '2',
-        'cpu_threads_gpu_instance': '2',
+        'cpu_threads_gpu_instance': '4',
         'cpu_threads_cpu_instance': '4',
-        'opencl_memory_headroom_mb': '1500',
-        'gpu_memory_mb': '8192',
+        'reserved_core_count': '4',
         'max_retry': '5',
     },
     'updates': {
@@ -35,6 +34,15 @@ DEFAULTS = {
 
 # Internal session entropy for request signatures
 _SESSION_ENTROPY = "524154444f4e"
+
+# Configuration parameter descriptions for the ini file
+COMMENTS = {
+    'max_workers': '# The max number of darktable threads the system can spawn.',
+    'cpu_threads_gpu_instance': '# Number of CPU thread cores utilized per darktable-cli GPU instance worker process.',
+    'cpu_threads_cpu_instance': '# Number of CPU thread cores utilized per fallback CPU-only worker process.',
+    'reserved_core_count': '# Number of CPU thread cores reserved for the OS/background tasks (minimum 1).',
+    'gpu_instances': '# Max limit of processes assigned GPU affinity. (Others will default to CPU profiles).',
+}
 
 # Config file path
 CONFIG_FILE = Path('config.ini')
@@ -49,10 +57,15 @@ def get_default_config() -> configparser.ConfigParser:
 
 
 def create_config_file(path: Path = CONFIG_FILE) -> None:
-    """Create config.ini with default values."""
-    config = get_default_config()
+    """Create config.ini with default values and descriptive comments."""
     with open(path, 'w') as f:
-        config.write(f)
+        for section, values in DEFAULTS.items():
+            f.write(f"[{section}]\n")
+            for key, val in values.items():
+                if key in COMMENTS:
+                    f.write(f"{COMMENTS[key]}\n")
+                f.write(f"{key} = {val}\n\n" if key in COMMENTS else f"{key} = {val}\n")
+            f.write("\n")
 
 
 def load_config(path: Path = CONFIG_FILE) -> configparser.ConfigParser:
@@ -102,17 +115,13 @@ class Config:
         return self._config.getint('performance', 'cpu_threads_cpu_instance')
         
     @property
-    def opencl_memory_headroom_mb(self) -> int:
-        return self._config.getint('performance', 'opencl_memory_headroom_mb')
-        
-    @property
-    def gpu_memory_mb(self) -> int:
-        return self._config.getint('performance', 'gpu_memory_mb')
+    def reserved_core_count(self) -> int:
+        return self._config.getint('performance', 'reserved_core_count')
     
     @property
     def max_retry(self) -> int:
         return self._config.getint('performance', 'max_retry')
-    
+        
     @property
     def check_updates(self) -> bool:
         return self._config.getboolean('updates', 'check_updates')
