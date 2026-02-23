@@ -45,28 +45,25 @@ def get_affinity_mask(start_thread: int, end_thread: int) -> str:
     return hex(mask).replace("0x", "").upper()
 
 
-def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
+def generate_worker_profiles(max_workers: int, max_gpu: int, job_count: int) -> List[dict]:
     """Generate worker profiles with CPU affinity."""
     config = get_config()
     total_threads = os.cpu_count() or 4
     
-    # 4 thread buffer isolation
-    max_allocatable = max(1, total_threads - 4)
+    # User-configured thread buffer isolation
+    reserve = max(0, config.reserved_core_count)
+    max_allocatable = total_threads - reserve
     assigned_threads = 0
     
-    # Max headroom limit calculation
-    headroom = config.opencl_memory_headroom_mb
-    max_headroom = max(1, config.gpu_memory_mb // 2)
-    if headroom > max_headroom:
-        print(f"⚠️  Memory headroom {headroom}MB exceeds half of GPU memory. Capping to {max_headroom}MB.")
-        headroom = max_headroom
-        
     profiles = []
     
     current_end = total_threads - 1
     
-    gpu_count = min(max_workers, max_gpu)
-    cpu_count = max(0, max_workers - gpu_count)
+    # Do not spin up more workers than the actual number of folders waiting
+    effective_workers = min(max_workers, job_count)
+    
+    gpu_count = min(effective_workers, max_gpu)
+    cpu_count = max(0, effective_workers - gpu_count)
     
     worker_id = 1
     
@@ -86,8 +83,7 @@ def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
             'start_thread': start,
             'end_thread': current_end,
             'hex_mask': get_affinity_mask(start, current_end),
-            'use_gpu': True,
-            'headroom': headroom
+            'use_gpu': True
         })
         current_end = start - 1
         worker_id += 1
@@ -109,8 +105,7 @@ def generate_worker_profiles(max_workers: int, max_gpu: int) -> List[dict]:
             'start_thread': start,
             'end_thread': current_end,
             'hex_mask': get_affinity_mask(start, current_end),
-            'use_gpu': False,
-            'headroom': headroom
+            'use_gpu': False
         })
         current_end = start - 1
         worker_id += 1
@@ -139,10 +134,8 @@ class SandboxExecutor:
         
         self._lock = threading.Lock()
         
-        self.profiles = generate_worker_profiles(self.max_workers, self.gpu_instances)
+        self.profiles = []
         self.profile_queue = queue.Queue()
-        for p in self.profiles:
-            self.profile_queue.put(p)
             
     def _run_conversion(self, job: dict, profile: dict) -> dict:
         """
@@ -160,9 +153,7 @@ class SandboxExecutor:
         use_gpu = profile['use_gpu']
         
         config_dir = f"C:/temp/dt_worker_{worker_id}_config"
-        cache_dir = f"C:/temp/dt_worker_{worker_id}_cache"
         os.makedirs(config_dir, exist_ok=True)
-        os.makedirs(cache_dir, exist_ok=True)
         
         input_folder = to_forward_slashes(job['input_folder'])
         output_template = job['output_template']
@@ -171,25 +162,15 @@ class SandboxExecutor:
             
         exe_path = str(self.darktable_cli)
         
-        headroom = profile.get('headroom', 1500)
-        
         cmd_str = (
-            f'start "" /affinity {hex_mask} /b /wait "{exe_path}" '
+            f'start "DT" /affinity {hex_mask} /b /wait "{exe_path}" '
             f'"{input_folder}" '
             f'"{output_template}" '
             f'--width {self.width} '
             f'--height {self.height} '
-            f'--apply-custom-presets false '
             f'--core '
-            f'--library :memory: '
             f'--configdir "{config_dir}" '
-            f'--cachedir "{cache_dir}" '
             f'--conf plugins/imageio/format/jpeg/quality={self.jpeg_quality} '
-            f'--conf opencl_memory_headroom={headroom} '
-            f'--conf opencl_async_pixelpipe=TRUE '
-            # default: cpu and gpu both
-            # very_fast_gpu: gpu only for everything
-            f'--conf opencl_scheduling_profile=very_fast_gpu '
             f'--conf opencl={"TRUE" if use_gpu else "FALSE"}'
         )
         
@@ -216,7 +197,6 @@ class SandboxExecutor:
             
         finally:
             shutil.rmtree(config_dir, ignore_errors=True)
-            shutil.rmtree(cache_dir, ignore_errors=True)
         
         return result
 
@@ -235,6 +215,7 @@ class SandboxExecutor:
         jobs: List[dict],
         progress_callback: Optional[Callable[[dict], None]] = None,
     ) -> dict:
+        """Execute all jobs using the sandboxed worker pool."""
         global _shutdown_requested
         _shutdown_requested = False
         
@@ -251,18 +232,36 @@ class SandboxExecutor:
         
         if not jobs:
             return results
-        
+            
+        # Dynamically allocate profiles matched to actual job footprint
+        self.profiles = generate_worker_profiles(self.max_workers, self.gpu_instances, len(jobs))
+        # Clear existing queue and populate with new profiles
+        while not self.profile_queue.empty():
+            self.profile_queue.get_nowait()
+        for p in self.profiles:
+            self.profile_queue.put(p)
+            
+        # Ensure we don't try to use more threads than we have profiles for
+        active_thread_count = len(self.profiles)
+        if active_thread_count == 0:
+            print("⚠️  No worker profiles could be generated (possibly due to thread constraints).")
+            # Mark all jobs as failed if we can't run them
+            for job in jobs:
+                results['failed'] += 1
+                results['failed_jobs'].append({
+                    'input_folder': job['input_folder'],
+                    'error': "No worker profiles available.",
+                    'success': False,
+                    'failed_files': [],
+                })
+            return results
+            
         original_sigint = signal.signal(signal.SIGINT, _signal_handler)
         
         try:
             pbar = tqdm(total=total_files, desc="Converting", unit="file")
             
-            max_workers = len(self.profiles)
-            if max_workers == 0:
-                print("No worker profiles available.")
-                return results
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            with ThreadPoolExecutor(max_workers=active_thread_count) as executor:
                 
                 def task_wrapper(job):
                     profile = self.profile_queue.get()
